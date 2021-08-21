@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cesium App</title>
+    <script src="./scrips/Cesium/Cesium.js"></script>
+    <link rel="stylesheet" href="./scrips/Cesium/Widgets/widgets.css">
+    <style>
+        html, body{
+            height: 100%;
+            margin: 0px;
+            padding: 0px;
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer" style="height: 100%;"<div>
+    <script>
+        // var geeMetadata = new Cesium.GoogleEarthEnterpriseMetadata('http://www.earthenterprise.org/3d');
+        // var gee = new Cesium.GoogleEarthEnterpriseImageryProvider({
+        //     metadata : geeMetadata
+        // });
+        
+        //加载谷歌地图
+        //需要挂VPN
+        var google = new Cesium.UrlTemplateImageryProvider({
+        url:"http://mt1.google.cn/vt/lyrs=s&hl=zh-CN&x={x}&y={y}&z={z}&s=Gali"
+        })
+              
+        
+        var viewer = new Cesium.Viewer('cesiumContainer',{
+            baseLayerPicker: false,
+            imageryProvider: google,
+            //加载地形的细节
+            // terrainProvider : new Cesium.CesiumTerrainProvider({
+            //     url : Cesium.IonResource.fromAssetId(3956),
+            //     requestVertexNormals : true
+            //     }),
+            //加载地形的另一种方法
+            terrainProvider : Cesium.createWorldTerrain({
+                //使得地形效果更好
+                requestWaterMask : true,
+                requestVertexNormals : true
+                }),
+        });
+
+        viewer.camera.setView({
+            // 北京上空的视角    
+            // destination: Cesium.Cartesian3.fromDegrees(116.39, 39.9, 15000.0),
+            // orientation: {
+            //     heading : Cesium.Math.toRadians(0.0), // 方向 左右摆头
+            //     pitch : Cesium.Math.toRadians(-90.0),// 倾斜角度 上下抬头 机头
+            //     roll : 0 
+            //     }
+
+            //纽约上空的视角 从地图中找到爬取的
+            destination: new Cesium.Cartesian3(1333968.4405236486, -4655687.078274992, 4138588.375097818),
+            orientation: {
+                heading : 0.3859574340533012, // 方向 左右摆头
+                pitch : -1.2197967732944015,// 倾斜角度 上下抬头 机头
+                roll : 0 
+                }
+            
+            //重庆
+            // destination: Cesium.Cartesian3.fromDegrees(106.54, 29.59, 1500.0),
+            })
+
+            // 加载3DTiles数据，纽约进行封装了
+        var city = viewer.scene.primitives.add(new Cesium.Cesium3DTileset({url:Cesium.IonResource.fromAssetId(5741)}));
+
+            // //更改建筑物样式1  根据高度修改建筑颜色
+            // // 设置建筑物的样式
+        var heightStyle = new Cesium.Cesium3DTileStyle({
+            color:{
+                conditions:[
+                ["${height} >= 300","rgba(45,0,75,0.5)"],
+                ["${height} >= 200","rgb(102,71,151)"],
+                ["${height} >= 100","rgb(170,162,204)"],
+                ["${height} >= 50","rgb(224,226,238)"],
+                ["${height} >= 25","rgb(252,230,200)"],
+                ["${height} >= 10","rgb(248,176,87)"],
+                ["${height} >= 5","rgb(198,106,11)"],
+                ["true","rgb(102,71,151)"]
+                ]
+                }
+            })
+            // 将默认样式改为自定义样式
+        city.style = heightStyle;
+
+            // geojson
+
+    var geojsonOptions = {
+        clampToGround : true
+    };
+    // Load neighborhood boundaries from a GeoJson file
+    // Data from : https://data.cityofnewyork.us/City-Government/Neighborhood-Tabulation-Areas/cpf4-rkhq
+    //Promise数据 加载完成后执行    
+    var neighborhoodsPromise = Cesium.GeoJsonDataSource.load('./assets/SampleData/sampleNeighborhoods.geojson', geojsonOptions);
+
+    // Save an new entity collection of neighborhood data
+    var neighborhoods;
+    neighborhoodsPromise.then(function(dataSource) {
+        // Add the new data as entities to the viewer
+        viewer.dataSources.add(dataSource);
+        neighborhoods = dataSource.entities;
+
+        // Get the array of entities
+        //把数据中每个小的区块提取出来
+        var neighborhoodEntities = dataSource.entities.values;
+        for (var i = 0; i < neighborhoodEntities.length; i++) {
+            var entity = neighborhoodEntities[i];
+
+            if (Cesium.defined(entity.polygon)) {
+                // Use kml neighborhood value as entity name
+                //修改区块名字
+                entity.name = entity.properties.neighborhood;
+                // Set the polygon material to a random, translucent color
+                //修改每个多边形的属性
+                entity.polygon.material = Cesium.Color.fromRandom({
+                    red : 0.1,
+                    maximumGreen : 0.5,
+                    minimumBlue : 0.5,
+                    alpha : 0.6
+                });
+                // Tells the polygon to color the terrain. ClassificationType.CESIUM_3D_TILE will color the 3D tileset, and ClassificationType.BOTH will color both the 3d tiles and terrain (BOTH is the default)
+                entity.polygon.classificationType = Cesium.ClassificationType.TERRAIN;
+                // Generate Polygon center
+                //取出多边形的顶点
+                var polyPositions = entity.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions;
+                var polyCenter = Cesium.BoundingSphere.fromPoints(polyPositions).center;
+                //贴地处理
+                polyCenter = Cesium.Ellipsoid.WGS84.scaleToGeodeticSurface(polyCenter);
+                entity.position = polyCenter;
+                // Generate labels
+                //以中心点位置显示文字标签
+                entity.label = {
+                    text : entity.name,
+                    showBackground : true,
+                    scale : 0.6,
+                    horizontalOrigin : Cesium.HorizontalOrigin.CENTER,
+                    verticalOrigin : Cesium.VerticalOrigin.BOTTOM,
+                    distanceDisplayCondition : new Cesium.DistanceDisplayCondition(10.0, 8000.0),
+                    disableDepthTestDistance : 100.0
+                };
+            }
+
+
+        }
+    });
+
+    //////////////////////////////////////////////////////////////////////////
+    // Loading and Styling Entity Data
+    //////////////////////////////////////////////////////////////////////////
+
+    var kmlOptions = {
+        camera : viewer.scene.camera,
+        canvas : viewer.scene.canvas,
+        clampToGround : true
+    };
+    // Load geocache points of interest from a KML file
+    // Data from : http://catalog.opendata.city/dataset/pediacities-nyc-neighborhoods/resource/91778048-3c58-449c-a3f9-365ed203e914
+    var geocachePromise = Cesium.KmlDataSource.load('./assets/SampleData/sampleGeocacheLocations.kml', kmlOptions);
+
+
+
+    //poi.js
+    // Add geocache billboard entities to scene and style them
+    geocachePromise.then(function(dataSource) {
+        // Add the new data as entities to the viewer
+        viewer.dataSources.add(dataSource);
+
+        // Get the array of entities
+        var geocacheEntities = dataSource.entities.values;
+
+        for (var i = 0; i < geocacheEntities.length; i++) {
+            var entity = geocacheEntities[i];
+            if (Cesium.defined(entity.billboard)) {
+                // Adjust the vertical origin so pins sit on terrain
+                entity.billboard.verticalOrigin = Cesium.VerticalOrigin.BOTTOM;
+                // Disable the labels to reduce clutter
+                entity.label = undefined;
+                // Add distance display condition
+                entity.billboard.distanceDisplayCondition = new Cesium.DistanceDisplayCondition(10.0, 20000.0);
+                // Compute latitude and longitude in degrees
+                var cartographicPosition = Cesium.Cartographic.fromCartesian(entity.position.getValue(Cesium.JulianDate.now()));
+                var latitude = Cesium.Math.toDegrees(cartographicPosition.latitude);
+                var longitude = Cesium.Math.toDegrees(cartographicPosition.longitude);
+                // Modify description
+                var description = '<table class="cesium-infoBox-defaultTable cesium-infoBox-defaultTable-lighter"><tbody>' +
+                    '<tr><th>' + "Longitude" + '</th><td>' + longitude.toFixed(5) + '</td></tr>' +
+                    '<tr><th>' + "Latitude" + '</th><td>' + latitude.toFixed(5) + '</td></tr>' +
+                    '</tbody></table>';
+                entity.description = description;
+            }
+        }
+    });
+
+        // path and drone
+    // Load a drone flight path from a CZML file
+    var dronePromise = Cesium.CzmlDataSource.load('./assets/SampleData/SampleFlight.czml');
+
+    // Save a new drone model entity
+    var drone;
+    dronePromise.then(function(dataSource) {
+        viewer.dataSources.add(dataSource);
+        // Get the entity using the id defined in the CZML data
+        drone = dataSource.entities.getById('Aircraft/Aircraft1');
+        // Attach a 3D model
+        drone.model = {
+            uri : './assets/SampleData/Models/CesiumDrone.gltf',
+            minimumPixelSize : 128,
+            maximumScale : 1000,
+            silhouetteColor : Cesium.Color.WHITE,
+            silhouetteSize : 2
+        };
+        // Add computed orientation based on sampled positions
+        drone.orientation = new Cesium.VelocityOrientationProperty(drone.position);
+
+        // Smooth path interpolation
+        drone.position.setInterpolationOptions({
+            interpolationAlgorithm : Cesium.HermitePolynomialApproximation,
+            interpolationDegree : 2
+        });
+        drone.viewFrom = new Cesium.Cartesian3(0, -30, 30);
+
+        viewer.trackedEntity = drone;
+        //使播放
+        viewer.clock.shouldAnimate = true;
+    });
+
+            
+    </script>
+    
+</body>
+</html>
